@@ -1,18 +1,47 @@
 name: Code Review
+
 permissions:
   contents: read
   pull-requests: write
+
 on:
   pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
+    types: [labeled, opened, synchronize, reopened]
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - 'components/**'
+      - 'pages/**'
+  workflow_dispatch:
+
+concurrency:
+  group: cr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: ChatGPT Code Review
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Gate AI review behind explicit label or manual dispatch, and restrict to internal repo
+    if: >-
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.pull_request.labels.*.name, 'ai-review')) &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
     steps:
-      - uses: anc95/ChatGPT-CodeReview@main
+      - name: Verify API key availability
+        id: check-secret
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::warning ::OPENAI_API_KEY is not configured; skipping AI code review."
+            exit 0
+          fi
+
+      - name: Run ChatGPT Code Review
+        uses: anc95/ChatGPT-CodeReview@8bd66227f057f21e847a8c27c9b356c25271d292 # main
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
+          MODEL: "gpt-4o-mini"
